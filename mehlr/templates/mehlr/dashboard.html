@@ -1,5 +1,5 @@
 {% extends "mehlr/base.html" %}
-{% load static %}
+{% load static mehlr_tags %}
 
 {% block title %}Dashboard{% endblock %}
 
@@ -12,20 +12,35 @@
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
   {% include "mehlr/components/stats_card.html" with label="Toplam Sohbet" value=total_conversations icon="chat" %}
   {% include "mehlr/components/stats_card.html" with label="Toplam Mesaj" value=total_messages icon="message" %}
-  {% include "mehlr/components/stats_card.html" with label="Aktif Proje" value=projects|length icon="project" %}
+  {% include "mehlr/components/stats_card.html" with label="Aktif Proje" value=total_projects icon="project" %}
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
   <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
     <h2 class="text-lg font-semibold text-mehlr-primary mb-4">Projeler</h2>
     <div class="space-y-3">
-      {% for project in projects %}
-        <a href="{% url 'mehlr:chat' %}?project={{ project.slug }}" class="block p-3 rounded-lg border border-gray-100 hover:border-mehlr-accent hover:bg-gray-50 transition">
-          <span class="font-medium text-mehlr-text">{{ project.name }}</span>
-          <span class="text-gray-500 text-sm block mt-1">{{ project.description|truncatewords:12 }}</span>
-        </a>
+      {% for item in projects_with_meta %}
+        <div class="project-card block p-3 rounded-lg border border-gray-100 hover:border-mehlr-accent hover:bg-gray-50 transition">
+          <a href="{% url 'mehlr:chat_project' item.project.slug %}" class="block">
+            <h3 class="font-medium text-mehlr-text">{% project_display_name item.project.slug %}</h3>
+            <p class="text-sm text-gray-500 mt-0.5">{{ item.domain }}</p>
+            <div class="capabilities mt-2 flex flex-wrap gap-1">
+              {% for cap in item.capabilities|slice:":3" %}
+                <span class="badge text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700">{{ cap|capability_label }}</span>
+              {% endfor %}
+            </div>
+            <span class="inline-block mt-3 text-mehlr-accent font-medium text-sm">Sohbet Başlat →</span>
+          </a>
+        </div>
       {% empty %}
-        <p class="text-gray-500">Henüz proje eklenmemiş. Admin panelinden proje ekleyebilirsiniz.</p>
+        {% for project in projects %}
+          <a href="{% url 'mehlr:chat' %}?project={{ project.slug }}" class="block p-3 rounded-lg border border-gray-100 hover:border-mehlr-accent hover:bg-gray-50 transition">
+            <span class="font-medium text-mehlr-text">{{ project.name }}</span>
+            <span class="text-gray-500 text-sm block mt-1">{{ project.description|truncatewords:12 }}</span>
+          </a>
+        {% empty %}
+          <p class="text-gray-500">Henüz proje eklenmemiş. Admin panelinden proje ekleyebilirsiniz.</p>
+        {% endfor %}
       {% endfor %}
     </div>
   </section>

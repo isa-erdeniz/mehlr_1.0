@@ -1,8 +1,109 @@
 """
 Rapor üretim servisi — MEHLR analiz raporları oluşturur ve kaydeder.
+Analiz raporu üretimi: Gemini AI + proje bağlamı (generate_report).
 """
+import time
 from mehlr.models import Project, AnalysisReport, Conversation
 from mehlr.services.context_manager import get_project_context
+
+
+# Rapor tipi → Gemini'ye gönderilecek soru şablonları
+REPORT_TEMPLATES = {
+    "summary": (
+        "{project_name} projesi için genel durum özeti raporu hazırla. "
+        "Temel metrikler, son gelişmeler ve öneriler içersin."
+    ),
+    "trend_report": (
+        "{project_name} için trend analizi yap. "
+        "Son dönem verileri, yönelimler ve gelecek tahminlerini içersin."
+    ),
+    "audit_report": (
+        "{project_name} için denetim raporu oluştur. "
+        "Uyumluluk durumu, riskler ve aksiyon önerileri içersin."
+    ),
+    "performance": (
+        "{project_name} için performans raporu hazırla. "
+        "KPI'lar, başarı oranları ve iyileştirme alanlarını içersin."
+    ),
+    "custom": "{custom_query}",
+}
+
+
+def generate_report(
+    project: Project,
+    report_type: str = "summary",
+    custom_query: str = "",
+    user=None,
+) -> AnalysisReport:
+    """
+    Gemini ile rapor üret ve AnalysisReport modeline kaydet.
+    Mevcut model alanları kullanılır; ek bilgi data_snapshot'ta.
+    Döner: AnalysisReport instance
+    """
+    from mehlr.services.ai_engine import query_ai
+    from mehlr.prompts.project_prompts import PROJECT_PROMPTS
+
+    project_meta = PROJECT_PROMPTS.get(project.slug) or PROJECT_PROMPTS.get(project.slug.replace("_", "-")) or {}
+    display_name = project_meta.get("display_name", project.name)
+
+    template = REPORT_TEMPLATES.get(report_type, REPORT_TEMPLATES["summary"])
+    if report_type == "custom" and custom_query:
+        query = custom_query
+    else:
+        query = template.format(
+            project_name=display_name,
+            custom_query=custom_query,
+        )
+
+    start = time.time()
+    result = query_ai(
+        project_key=project.slug,
+        user_message=query,
+        conversation_history=[],
+        is_analysis=True,
+    )
+    elapsed = round(time.time() - start, 2)
+
+    report_content = result.get("response", "Rapor üretilemedi.")
+    confidence = result.get("confidence", "BELİRTİLMEDİ")
+    tokens_used = result.get("tokens_used", 0)
+    error = result.get("error")
+
+    report_type_label = _report_type_label(report_type)
+    title = f"{display_name} — {report_type_label}"
+
+    report = AnalysisReport.objects.create(
+        project=project,
+        title=title,
+        report_type="custom",
+        content=report_content,
+        data_snapshot={
+            "query": query,
+            "response": report_content,
+            "confidence_score": confidence,
+            "tokens_used": tokens_used,
+            "generation_time": elapsed,
+            "has_error": bool(error),
+            "error_message": error or "",
+            "report_type_label": report_type_label,
+            "project_display_name": display_name,
+            "model_used": "gemini-1.5-pro",
+        },
+        generated_by=None,
+        is_active=True,
+    )
+    return report
+
+
+def _report_type_label(report_type: str) -> str:
+    labels = {
+        "summary": "Genel Özet",
+        "trend_report": "Trend Analizi",
+        "audit_report": "Denetim Raporu",
+        "performance": "Performans Raporu",
+        "custom": "Özel Rapor",
+    }
+    return labels.get(report_type, "Rapor")
 
 
 def format_as_markdown(data):

@@ -16,18 +16,6 @@
       </li>
     {% endfor %}
   </ul>
-
-  {% if page_obj.has_other_pages %}
-    <nav class="mt-6 flex justify-center gap-2">
-      {% if page_obj.has_previous %}
-        <a href="?page={{ page_obj.previous_page_number }}" class="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">Önceki</a>
-      {% endif %}
-      <span class="px-4 py-2 text-gray-600">Sayfa {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
-      {% if page_obj.has_next %}
-        <a href="?page={{ page_obj.next_page_number }}" class="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">Sonraki</a>
-      {% endif %}
-    </nav>
-  {% endif %}
 {% else %}
   <p class="text-gray-500">Henüz rapor yok. Sohbetten "rapor üret" diyerek veya API ile rapor oluşturabilirsiniz.</p>
 {% endif %}

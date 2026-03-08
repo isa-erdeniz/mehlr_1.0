@@ -3,51 +3,115 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}mehlr_1.0{% endblock %} | ErdenizTech AI Engine</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>{% block title %}{{ page_title|default:"MEHLR" }} — ErdenizTech{% endblock %}</title>
+
+  {% load static %}
+
+  <!-- MEHLR CSS -->
+  <link rel="stylesheet" href="{% static 'mehlr/css/mehlr.css' %}">
+
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
+
+  <!-- HTMX CSRF -->
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            mehlr: { primary: '#1E3A5F', accent: '#00B4D8', bg: '#F8FAFC', text: '#1E293B' },
-            success: '#10B981', warning: '#F59E0B', error: '#EF4444'
-          }
-        }
-      }
-    }
+    document.addEventListener("htmx:configRequest", (e) => {
+      e.detail.headers["X-CSRFToken"] = document.querySelector("meta[name=csrf-token]").content;
+    });
   </script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
   {% block extra_head %}{% endblock %}
-  <style>
-    body { font-family: 'Inter', system-ui, sans-serif; }
-  </style>
 </head>
-<body class="bg-mehlr-bg text-mehlr-text min-h-screen">
-  <header class="bg-mehlr-primary text-white shadow">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <a href="{% url 'mehlr:dashboard' %}" class="text-xl font-semibold flex items-center gap-2">
-        <span class="w-8 h-8 rounded bg-mehlr-accent flex items-center justify-center text-mehlr-primary font-bold">M</span>
-        mehlr_1.0 | ErdenizTech AI Engine
-      </a>
-      <nav class="flex gap-4">
-        <a href="{% url 'mehlr:dashboard' %}" class="hover:text-mehlr-accent transition">Dashboard</a>
-        <a href="{% url 'mehlr:chat' %}" class="hover:text-mehlr-accent transition">Sohbet</a>
-        <a href="{% url 'mehlr:reports' %}" class="hover:text-mehlr-accent transition">Raporlar</a>
-        {% if user.is_authenticated %}
-          <span class="text-gray-300">{{ user.get_username }}</span>
-          <a href="/admin/logout/?next=/mehlr/" class="text-gray-300 hover:text-white">Çıkış</a>
-        {% endif %}
-      </nav>
-    </div>
+<body>
+
+<div class="mehlr-layout">
+
+  <!-- TOPBAR -->
+  <header class="mehlr-topbar">
+    <a href="{% url 'mehlr:dashboard' %}" class="mehlr-topbar__logo">
+      ⚡ MEHLR 1.0
+    </a>
+    <span style="font-size:.75rem;color:#9ca3af">ErdenizTech AI Engine</span>
+
+    <!-- Mobil sidebar toggle -->
+    <button class="btn-icon" id="sidebar-toggle"
+            onclick="document.querySelector('.mehlr-sidebar').classList.toggle('open')"
+            style="display:none">☰</button>
+
+    <nav class="mehlr-topbar__nav">
+      <a href="{% url 'mehlr:dashboard' %}" class="btn btn-secondary" style="padding:.35rem .75rem;font-size:.8rem">Dashboard</a>
+      <a href="{% url 'mehlr:chat' %}" class="btn btn-secondary" style="padding:.35rem .75rem;font-size:.8rem">Chat</a>
+      <a href="{% url 'mehlr:reports' %}" class="btn btn-secondary" style="padding:.35rem .75rem;font-size:.8rem">Raporlar</a>
+      {% if user.is_staff %}
+        <a href="/admin/" class="btn btn-secondary" style="padding:.35rem .75rem;font-size:.8rem">Admin</a>
+      {% endif %}
+      {% if user.is_authenticated %}
+        <span style="font-size:.8rem;color:#9ca3af;padding:.35rem .5rem">{{ user.username }}</span>
+        <a href="/admin/logout/?next=/mehlr/" class="btn btn-secondary" style="padding:.35rem .75rem;font-size:.8rem">Çıkış</a>
+      {% endif %}
+    </nav>
   </header>
-  <main class="max-w-6xl mx-auto px-4 py-6">
+
+  <!-- SIDEBAR -->
+  <aside class="mehlr-sidebar">
+    {% load mehlr_tags %}
+    <div class="project-selector__title">Projeler</div>
+    {% project_selector projects active_slug=selector_active_slug|default:"" %}
+
+    <!-- Meta panel — HTMX project_context_api doldurur -->
+    <div id="project-meta-panel" style="padding:.75rem;font-size:.75rem;color:#9ca3af">
+      {% if active_project %}
+        <b style="color:#1f2937">{{ active_project.name }}</b><br>
+        {% with meta=project_meta %}
+          {% if meta.domain %}<span>{{ meta.domain }}</span><br>{% endif %}
+          {% if meta.capabilities %}
+            <div style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:.25rem">
+              {% for cap in meta.capabilities|slice:":4" %}
+                <span class="badge">{{ cap|capability_label }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+      {% else %}
+        Proje seçin
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="mehlr-main">
+
+    <!-- Django messages → toast -->
+    {% if messages %}
+      {% for message in messages %}
+        <span data-django-message
+              data-django-message-level="{{ message.level }}"
+              style="display:none">{{ message }}</span>
+      {% endfor %}
+    {% endif %}
+
     {% block content %}{% endblock %}
+
   </main>
-  <footer class="border-t border-gray-200 mt-12 py-4 text-center text-sm text-gray-500">
-    mehlr_1.0 — ErdenizTech. "Veriyle düşün, akılla hareket et."
-  </footer>
-  {% block extra_js %}{% endblock %}
+
+</div><!-- /.mehlr-layout -->
+
+<!-- MEHLR JS -->
+<script src="{% static 'mehlr/js/mehlr.js' %}"></script>
+
+<!-- Mobil sidebar toggle görünürlük -->
+<script>
+  if (window.innerWidth <= 768) {
+    document.getElementById("sidebar-toggle").style.display = "flex";
+  }
+</script>
+
+{% block extra_js %}{% endblock %}
+
 </body>
 </html>
