@@ -135,18 +135,17 @@ class AnalysisReportAdmin(admin.ModelAdmin):
             gen_str = f"{float(gen_time):.2f}s" if gen_time != "—" else "—"
         except (ValueError, TypeError):
             gen_str = "—"
-        return format_html(
-            "<b>Güven:</b> {} | <b>Token:</b> {} | <b>Süre:</b> {} | <b>Hata:</b> {}<br><br>"
-            '<pre style="background:#f9fafb;padding:8px;border-radius:4px;'
-            "white-space:pre-wrap;max-height:200px;overflow-y:auto">{}</pre>"
-            "{}",
-            confidence,
-            tokens,
-            gen_str,
-            "Evet — " + error_msg if has_error else "Hayır",
-            response_preview,
-            format_html('<p style="color:red">{}</p>', error_msg) if has_error else "",
+        pre_style = "background:#f9fafb;padding:8px;border-radius:4px;white-space:pre-wrap;max-height:200px;overflow-y:auto"
+        hata_str = "Evet — " + error_msg if has_error else "Hayır"
+        html = (
+            f"<b>Güven:</b> {confidence} | <b>Token:</b> {tokens} | "
+            f"<b>Süre:</b> {gen_str} | <b>Hata:</b> {hata_str}<br><br>"
+            f'<pre style="{pre_style}">{response_preview}</pre>'
         )
+        if has_error and error_msg:
+            html += f'<p style="color:red">{error_msg}</p>'
+        from django.utils.safestring import mark_safe
+        return mark_safe(html)
     content_preview.short_description = "İçerik & Snapshot"
 
     fieldsets = (

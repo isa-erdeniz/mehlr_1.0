@@ -18,34 +18,50 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'erdeniz_security',
-    'axes',
-    'rest_framework',
-    'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',
-    'corsheaders',
     'django_htmx',
     'mehlr',
 ]
+try:
+    import erdeniz_security  # type: ignore[reportMissingImports]
+    INSTALLED_APPS += [
+        'erdeniz_security',
+        'axes',
+        'rest_framework',
+        'rest_framework_simplejwt',
+        'rest_framework_simplejwt.token_blacklist',
+        'corsheaders',
+    ]
+except ImportError:
+    pass
 
 MIDDLEWARE = [
-    'erdeniz_security.middleware.SecurityHeadersMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'erdeniz_security.middleware.RequestSanitizationMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'erdeniz_security.middleware.APIAuthenticationMiddleware',
-    'erdeniz_security.middleware.APIRateLimitMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'erdeniz_security.middleware.AuditMiddleware',
-    'axes.middleware.AxesMiddleware',
     'django_htmx.middleware.HtmxMiddleware',
 ]
+try:
+    import whitenoise  # noqa
+    MIDDLEWARE.insert(0, 'whitenoise.middleware.WhiteNoiseMiddleware')
+except ImportError:
+    pass
+try:
+    import erdeniz_security  # type: ignore[reportMissingImports]
+    MIDDLEWARE = (
+        ['erdeniz_security.middleware.SecurityHeadersMiddleware'] +
+        list(MIDDLEWARE) +
+        ['erdeniz_security.middleware.RequestSanitizationMiddleware',
+         'erdeniz_security.middleware.APIAuthenticationMiddleware',
+         'erdeniz_security.middleware.APIRateLimitMiddleware',
+         'erdeniz_security.middleware.AuditMiddleware',
+         'axes.middleware.AxesMiddleware']
+    )
+except ImportError:
+    pass
 
 ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
@@ -66,7 +82,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # VERITABANI — PostgreSQL (Production) veya SQLite (geliştirme)
 try:
-    import dj_database_url
+    import dj_database_url  # type: ignore[reportMissingImports]
     _db_url = config('DATABASE_URL', default='')
     if _db_url:
         DATABASES = {
@@ -106,7 +122,11 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'mehlr' / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+try:
+    import whitenoise  # noqa
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+except ImportError:
+    pass
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -184,36 +204,31 @@ LOGGING = {
 LOGIN_URL = '/admin/login/'
 LOGIN_REDIRECT_URL = '/mehlr/'
 
-# ErdenizTech güvenlik ayarları
+# ErdenizTech güvenlik ayarları (opsiyonel — paket yoksa sessiz geç)
 try:
-    from erdeniz_security.config import get_django_security_settings
-    for k, v in get_django_security_settings().items():
-        globals()[k] = v
+    from erdeniz_security.api_security import ERDENIZ_JWT_SETTINGS  # type: ignore[reportMissingImports]
+    SIMPLE_JWT = ERDENIZ_JWT_SETTINGS
+    REQUEST_SIGNING_SECRET = config('REQUEST_SIGNING_SECRET', default='')
+    INTER_SERVICE_SIGNING_SECRET = config('INTER_SERVICE_SIGNING_SECRET', default='')
+    from erdeniz_security.network_guard import get_cors_settings  # type: ignore[reportMissingImports]
+    _cors = get_cors_settings('mehlr')
+    CORS_ALLOWED_ORIGINS = _cors['CORS_ALLOWED_ORIGINS']
+    CORS_ALLOW_CREDENTIALS = _cors['CORS_ALLOW_CREDENTIALS']
+    CORS_ALLOWED_METHODS = _cors['CORS_ALLOWED_METHODS']
+    CORS_ALLOWED_HEADERS = _cors['CORS_ALLOWED_HEADERS']
+    REST_FRAMEWORK = {
+        'DEFAULT_AUTHENTICATION_CLASSES': [
+            'rest_framework_simplejwt.authentication.JWTAuthentication',
+            'rest_framework.authentication.SessionAuthentication',
+        ],
+        'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+        'DEFAULT_THROTTLE_CLASSES': [
+            'rest_framework.throttling.AnonRateThrottle',
+            'rest_framework.throttling.UserRateThrottle',
+        ],
+        'DEFAULT_THROTTLE_RATES': {'anon': '100/hour', 'user': '1000/hour'},
+        'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+        'EXCEPTION_HANDLER': 'erdeniz_security.api_security.secure_exception_handler',
+    }
 except Exception:
     pass
-
-# Hafta 2 — API & CORS & signing
-from erdeniz_security.api_security import ERDENIZ_JWT_SETTINGS
-SIMPLE_JWT = ERDENIZ_JWT_SETTINGS
-REQUEST_SIGNING_SECRET = config('REQUEST_SIGNING_SECRET', default='')
-INTER_SERVICE_SIGNING_SECRET = config('INTER_SERVICE_SIGNING_SECRET', default='')
-from erdeniz_security.network_guard import get_cors_settings
-_cors = get_cors_settings('mehlr')
-CORS_ALLOWED_ORIGINS = _cors['CORS_ALLOWED_ORIGINS']
-CORS_ALLOW_CREDENTIALS = _cors['CORS_ALLOW_CREDENTIALS']
-CORS_ALLOWED_METHODS = _cors['CORS_ALLOWED_METHODS']
-CORS_ALLOWED_HEADERS = _cors['CORS_ALLOWED_HEADERS']
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    ],
-    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
-    'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
-    ],
-    'DEFAULT_THROTTLE_RATES': {'anon': '100/hour', 'user': '1000/hour'},
-    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
-    'EXCEPTION_HANDLER': 'erdeniz_security.api_security.secure_exception_handler',
-}
