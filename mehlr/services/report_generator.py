@@ -87,7 +87,7 @@ def generate_report(
             "error_message": error or "",
             "report_type_label": report_type_label,
             "project_display_name": display_name,
-            "model_used": "gemini-1.5-pro",
+            "model_used": "gemini-2.5-flash",
         },
         generated_by=None,
         is_active=True,

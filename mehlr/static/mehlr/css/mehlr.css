@@ -66,6 +66,7 @@ a:hover { text-decoration: underline; }
 .message__warnings { font-size: .7rem; color: var(--mehlr-warning); margin-top: .2rem; padding: 0 .25rem; }
 
 #typing-indicator { display: flex; align-items: center; gap: .4rem; padding: .5rem .875rem; background: var(--mehlr-bg); border: 1px solid var(--mehlr-gray-200); border-radius: var(--mehlr-radius-lg); width: fit-content; box-shadow: var(--mehlr-shadow); font-size: .8rem; color: var(--mehlr-gray-400); }
+.hidden { display: none !important; }
 #typing-indicator.hidden { display: none; }
 
 .mehlr-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: mehlr-spin .7s linear infinite; vertical-align: middle; }

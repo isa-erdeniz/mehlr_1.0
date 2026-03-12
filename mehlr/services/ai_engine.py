@@ -1,270 +1,188 @@
 """
-mehlr_1.0 AI Motor Servisi — Google Gemini API iletişimi.
-Production-grade: chain-of-thought, fallback zinciri, güven skoru.
+mehlr_1.0 AI Motor Servisi — Google Gemini API (google-genai SDK).
 """
 import time
-import google.generativeai as genai
+import logging
 from django.conf import settings
 from django.core.cache import cache
 
-from mehlr.models import Message
-from mehlr.prompts.base_prompt import (
-    build_system_prompt,
-    build_analysis_prompt,
-    MEHLR_MASTER_PROMPT,
-)
-from mehlr.prompts.project_prompts import PROJECT_PROMPTS
-from mehlr.services.context_manager import get_project_context
+logger = logging.getLogger("mehlr")
 
-# Gemini konfigürasyonu
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+    genai = None
+    types = None
+    logger.warning("google-genai paketi bulunamadı.")
+
 MEHLR_CONFIG = getattr(settings, "MEHLR_CONFIG", {})
-
-GENERATION_CONFIG = genai.types.GenerationConfig(
-    temperature=MEHLR_CONFIG.get("TEMPERATURE", 0.7),
-    max_output_tokens=MEHLR_CONFIG.get("MAX_TOKENS", 4096),
-    top_p=0.95,
-    top_k=40,
-)
-
-SAFETY_SETTINGS = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-]
+PRIMARY_MODEL = MEHLR_CONFIG.get("PRIMARY_MODEL", "gemini-2.5-flash")
+FALLBACK_MODEL = MEHLR_CONFIG.get("FALLBACK_MODEL", "gemini-2.5-flash")
+MAX_TOKENS = MEHLR_CONFIG.get("MAX_TOKENS", 4096)
+TEMPERATURE = MEHLR_CONFIG.get("TEMPERATURE", 0.7)
+CACHE_TTL = MEHLR_CONFIG.get("CACHE_TTL", 300)
+RATE_LIMIT = MEHLR_CONFIG.get("RATE_LIMIT_PER_MINUTE", 15)
+MAX_HISTORY = MEHLR_CONFIG.get("MAX_CONVERSATION_HISTORY", 20)
 
 
-def _rate_limit_key(user_id):
-    return f"mehlr_rate_{user_id}"
-
-
-def _check_rate_limit(user_id):
-    """Dakikada RATE_LIMIT_PER_MINUTE'dan fazla istek varsa True döner."""
-    limit = MEHLR_CONFIG.get("RATE_LIMIT_PER_MINUTE", 15)
-    count = cache.get(_rate_limit_key(user_id), 0)
-    return count >= limit
-
-
-def _incr_rate_limit(user_id):
-    """İstek sayacını artırır; 1 dakika TTL."""
-    key = _rate_limit_key(user_id)
-    count = cache.get(key, 0) + 1
-    cache.set(key, count, 60)
-    return count
-
-
-def _cache_key(user_message, project_slug, history_hash):
-    return f"mehlr_resp:{hash(user_message[:200])}:{project_slug}:{history_hash}"
-
-
-def get_model(system_instruction: str, model_name: str = "gemini-1.5-pro"):
-    """System instruction ile Gemini model instance'ı döner."""
-    api_key = getattr(settings, "GEMINI_API_KEY", None)
+def _get_client():
+    api_key = getattr(settings, "GEMINI_API_KEY", "")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY yapılandırılmamış.")
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(
-        model_name=model_name,
-        generation_config=GENERATION_CONFIG,
-        safety_settings=SAFETY_SETTINGS,
-        system_instruction=system_instruction,
+        raise ValueError("GEMINI_API_KEY tanımlı değil.")
+    http_options = types.HttpOptions(timeout=30_000)  # 30 saniye (ms)
+    return genai.Client(api_key=api_key, http_options=http_options)
+
+
+def query_ai(project_key, user_message, conversation_history=None,
+             is_analysis=False, system_prompt=None):
+    """
+    Gemini'ye istek gönderir.
+    Döner: {"response": str, "confidence": str, "tokens_used": int, "error": str|None}
+    """
+    if not GENAI_AVAILABLE:
+        return {"response": "", "confidence": "DÜŞÜK", "tokens_used": 0,
+                "error": "google-genai paketi yüklü değil."}
+
+    from mehlr.prompts.base_prompt import build_system_prompt, build_analysis_prompt
+    from mehlr.prompts.project_prompts import PROJECT_PROMPTS
+
+    meta = PROJECT_PROMPTS.get(project_key, {})
+    project_system = meta.get("system_prompt", "")
+
+    if system_prompt:
+        full_system = system_prompt
+    elif is_analysis:
+        full_system = build_analysis_prompt(project_system)
+    else:
+        full_system = build_system_prompt(project_system)
+
+    # Geçmiş mesajları formatla
+    history = conversation_history or []
+    contents = []
+    for msg in list(history)[-MAX_HISTORY:]:
+        role = "user" if msg.get("role") == "user" else "model"
+        contents.append(types.Content(
+            role=role,
+            parts=[types.Part(text=msg.get("content", ""))]
+        ))
+    contents.append(types.Content(
+        role="user",
+        parts=[types.Part(text=user_message)]
+    ))
+
+    config = types.GenerateContentConfig(
+        system_instruction=full_system,
+        max_output_tokens=MAX_TOKENS,
+        temperature=TEMPERATURE,
     )
 
-
-def _format_history(conversation_history: list) -> list:
-    """Django Conversation/Message veya dict listesinden Gemini history formatına çevir."""
-    formatted = []
-    max_history = MEHLR_CONFIG.get("MAX_CONVERSATION_HISTORY", 20)
-    for msg in conversation_history[-max_history:]:
-        role = getattr(msg, "role", None) or msg.get("role")
-        content = getattr(msg, "content", None) or msg.get("content", "")
-        if role == "user":
-            formatted.append({"role": "user", "parts": [content]})
-        else:
-            formatted.append({"role": "model", "parts": [content]})
-    return formatted
-
-
-def _extract_confidence(response_text: str) -> str:
-    """Yanıt metninden güven skorunu parse et."""
-    if not response_text:
-        return "BELİRTİLMEDİ"
-    if "Güven skoru: YÜKSEK" in response_text:
-        return "YÜKSEK"
-    if "Güven skoru: ORTA" in response_text:
-        return "ORTA"
-    if "Güven skoru: DÜŞÜK" in response_text:
-        return "DÜŞÜK"
-    return "BELİRTİLMEDİ"
-
-
-def query_ai(
-    project_key: str,
-    user_message: str,
-    conversation_history: list,
-    is_analysis: bool = False,
-) -> dict:
-    """
-    Ana AI sorgu fonksiyonu.
-    Döner: {"response": str, "confidence": str, "tokens_used": int, "error": None | str}
-    """
-    project = PROJECT_PROMPTS.get(project_key)
-    if project:
-        project_system_prompt = project["system_prompt"]
-    else:
-        project_system_prompt = (
-            MEHLR_MASTER_PROMPT
-            + "\n\n## PROJE BAĞLAMI\n"
-            + get_project_context(project_key or "general")
-        )
-
-    if is_analysis:
-        system_instruction = build_analysis_prompt(project_system_prompt)
-    else:
-        system_instruction = build_system_prompt(project_system_prompt)
-
     try:
-        model = get_model(system_instruction, model_name="gemini-1.5-pro")
-        chat = model.start_chat(history=_format_history(conversation_history))
-        response = chat.send_message(user_message)
-
-        text = getattr(response, "text", "") or ""
-        usage = getattr(response, "usage_metadata", None)
-        tokens_used = (
-            getattr(usage, "total_token_count", 0) or 0
-            if usage
-            else 0
+        client = _get_client()
+        response = client.models.generate_content(
+            model=PRIMARY_MODEL,
+            contents=contents,
+            config=config,
         )
+        text = response.text or ""
+        tokens = getattr(response.usage_metadata, "total_token_count", 0) or 0
+        confidence = _extract_confidence(text)
+        return {"response": text, "confidence": confidence,
+                "tokens_used": tokens, "error": None}
 
-        return {
-            "response": text,
-            "confidence": _extract_confidence(text),
-            "tokens_used": tokens_used,
-            "error": None,
-        }
     except Exception as e:
-        return _fallback_query(
-            project_key, user_message, conversation_history, str(e), is_analysis
-        )
-
-
-def _fallback_query(
-    project_key: str,
-    user_message: str,
-    conversation_history: list,
-    error_msg: str,
-    is_analysis: bool = False,
-) -> dict:
-    """Primary model başarısız olursa gemini-1.5-flash ile tekrar dene."""
-    project = PROJECT_PROMPTS.get(project_key)
-    if project:
-        project_system_prompt = project["system_prompt"]
-    else:
-        project_system_prompt = (
-            MEHLR_MASTER_PROMPT
-            + "\n\n## PROJE BAĞLAMI\n"
-            + get_project_context(project_key or "general")
-        )
-    system_instruction = build_system_prompt(project_system_prompt, include_cot=False)
-
-    try:
-        api_key = getattr(settings, "GEMINI_API_KEY", None)
-        if not api_key:
+        err_str = str(e).lower()
+        if "timeout" in err_str or "deadline" in err_str:
+            logger.warning(f"query_ai timeout: {e}")
             return {
-                "response": "API anahtarı yapılandırılmamış.",
+                "response": "Yanıt süresi aşıldı, lütfen tekrar deneyin.",
                 "confidence": "DÜŞÜK",
                 "tokens_used": 0,
-                "error": "GEMINI_API_KEY yok",
+                "error": "timeout",
             }
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system_instruction,
+        logger.error(f"query_ai primary failed: {e}")
+        return _fallback_query(contents, config, str(e))
+
+
+def _fallback_query(contents, config, original_error):
+    try:
+        client = _get_client()
+        fallback_config = types.GenerateContentConfig(
+            system_instruction=getattr(config, "system_instruction", None),
+            max_output_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
         )
-        chat = model.start_chat(history=_format_history(conversation_history))
-        response = chat.send_message(user_message)
-        text = getattr(response, "text", "") or ""
-        return {
-            "response": text + "\n\n_[Yedek model kullanıldı]_",
-            "confidence": "ORTA",
-            "tokens_used": 0,
-            "error": None,
-        }
-    except Exception as e2:
-        return {
-            "response": "Şu anda yanıt üretemiyorum. Lütfen tekrar deneyin.",
-            "confidence": "DÜŞÜK",
-            "tokens_used": 0,
-            "error": str(e2),
-        }
+        response = client.models.generate_content(
+            model=FALLBACK_MODEL,
+            contents=contents,
+            config=fallback_config,
+        )
+        text = response.text or ""
+        tokens = getattr(response.usage_metadata, "total_token_count", 0) or 0
+        logger.info("Fallback model kullanıldı.")
+        return {"response": text, "confidence": "ORTA",
+                "tokens_used": tokens, "error": None}
+    except Exception as e:
+        err_str = str(e).lower()
+        if "timeout" in err_str or "deadline" in err_str:
+            return {"response": "Yanıt süresi aşıldı, lütfen tekrar deneyin.",
+                    "confidence": "DÜŞÜK", "tokens_used": 0,
+                    "error": "timeout"}
+        logger.error(f"Fallback da başarısız: {e}")
+        return {"response": "Şu an yanıt üretemiyorum, lütfen tekrar deneyin.",
+                "confidence": "DÜŞÜK", "tokens_used": 0,
+                "error": str(e)}
+
+
+def _extract_confidence(text):
+    text_upper = text.upper()
+    if "YÜKSEK" in text_upper or "HIGH" in text_upper:
+        return "YÜKSEK"
+    if "ORTA" in text_upper or "MEDIUM" in text_upper:
+        return "ORTA"
+    if "DÜŞÜK" in text_upper or "LOW" in text_upper:
+        return "DÜŞÜK"
+    return "ORTA"
 
 
 def generate_response(user_message, conversation, project_slug=None):
     """
-    Kullanıcı mesajına göre MEHLR yanıtı üretir (views ile uyumlu API).
-    conversation: Conversation örneği
-    project_slug: seçili proje (None ise genel)
-    Döner: (response_text, tokens_used, processing_time, error_message)
+    Eski API — views.py uyumluluğu için korundu.
+    Döner: (response_text, tokens_used, elapsed, error)
     """
-    from mehlr.services.query_processor import preprocess_query, rewrite_query
-
-    user_id = conversation.user_id
-    if _check_rate_limit(user_id):
-        return (
-            "",
-            0,
-            0.0,
-            "Dakikada izin verilen sorgu sayısına ulaştınız. Lütfen biraz bekleyin.",
-        )
-
-    api_key = getattr(settings, "GEMINI_API_KEY", None)
-    if not api_key:
-        return (
-            "",
-            0,
-            0.0,
-            "Gemini API anahtarı yapılandırılmamış. Lütfen GEMINI_API_KEY ayarlayın.",
-        )
-
-    messages = list(
-        conversation.messages.order_by("created_at")[
-            -MEHLR_CONFIG.get("MAX_CONVERSATION_HISTORY", 20) :
-        ]
-    )
-    history = [
-        {
-            "role": "user" if m.role == Message.Role.USER else "assistant",
-            "content": m.content,
-        }
-        for m in messages
-    ]
-    history_hash = hash(tuple((h["role"], h["content"][:50]) for h in history))
-    cache_ttl = MEHLR_CONFIG.get("CACHE_TTL", 300)
-    project_key = project_slug or "general"
-    ckey = _cache_key(user_message, project_key, history_hash)
-    cached = cache.get(ckey)
-    if cached:
-        return cached["text"], cached.get("tokens", 0), 0.0, None
-
-    preprocessed = preprocess_query(user_message)
-    rewritten = rewrite_query(preprocessed["query"], project_key)
-    is_analysis = preprocessed.get("is_analysis", False)
-
     start = time.time()
-    result = query_ai(project_key, rewritten, history, is_analysis=is_analysis)
-    elapsed = time.time() - start
 
-    _incr_rate_limit(user_id)
-    if result["error"]:
-        return "", result["tokens_used"], elapsed, result["error"]
-    cache.set(
-        ckey,
-        {"text": result["response"], "tokens": result["tokens_used"]},
-        cache_ttl,
+    # Rate limit cache kontrolü (kullanıcı bazlı)
+    user_id = getattr(conversation, "user_id", None) or "anon"
+    cache_key = f"mehlr:rate:{user_id}"
+    count = cache.get(cache_key, 0)
+    if count >= RATE_LIMIT:
+        return ("Dakikada izin verilen sorgu sayısına ulaştınız. Lütfen bekleyin.", 0, 0.0, "rate_limit")
+    cache.set(cache_key, count + 1, timeout=60)
+
+    # Konuşma geçmişi
+    if conversation:
+        msgs = list(conversation.messages.order_by("created_at"))[-MAX_HISTORY:]
+        history = [{"role": m.role, "content": m.content} for m in msgs]
+        # Son mesaj user ise (views'da az önce eklenen), history'den çıkar
+        # çünkü query_ai zaten user_message'ı sonuna ekliyor
+        if history and history[-1]["role"] == "user":
+            history = history[:-1]
+    else:
+        history = []
+
+    result = query_ai(
+        project_key=project_slug or "general",
+        user_message=user_message,
+        conversation_history=history,
     )
+
+    elapsed = round(time.time() - start, 2)
     return (
         result["response"],
         result["tokens_used"],
         elapsed,
-        None,
+        result["error"],
     )

@@ -9,7 +9,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-me-in-production')
 DEBUG = config('DEBUG', default=True, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
+ALLOWED_HOSTS = config(
+    'ALLOWED_HOSTS',
+    default='localhost,127.0.0.1',
+    cast=lambda v: [s.strip() for s in v.split(',')]
+)
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='http://localhost:8000',
+    cast=lambda v: [s.strip() for s in v.split(',')]
+)
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -139,8 +148,8 @@ MEHLR_CONFIG = {
     'RATE_LIMIT_PER_MINUTE': config('MEHLR_RATE_LIMIT', default=15, cast=int),
     'CACHE_TTL': config('MEHLR_CACHE_TTL', default=300, cast=int),
     'MAX_CONVERSATION_HISTORY': config('MEHLR_MAX_CONVERSATION_HISTORY', default=20, cast=int),
-    'PRIMARY_MODEL': config('MEHLR_PRIMARY_MODEL', default='gemini-1.5-pro'),
-    'FALLBACK_MODEL': config('MEHLR_FALLBACK_MODEL', default='gemini-1.5-flash'),
+    'PRIMARY_MODEL': config('MEHLR_PRIMARY_MODEL', default='gemini-2.5-flash'),
+    'FALLBACK_MODEL': config('MEHLR_FALLBACK_MODEL', default='gemini-2.5-flash'),
     'LOG_LEVEL': config('MEHLR_LOG_LEVEL', default='INFO'),
 }
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')

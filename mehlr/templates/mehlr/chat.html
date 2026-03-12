@@ -24,7 +24,7 @@
     {% endif %}
   </div>
 
-  <div id="mehlr-loading" class="hidden mb-4 p-3 bg-mehlr-primary/10 rounded-lg text-mehlr-primary">
+  <div id="mehlr-loading" class="mb-4 p-3 bg-mehlr-primary/10 rounded-lg text-mehlr-primary" style="display: none;">
     Düşünüyorum...
   </div>
 
@@ -37,6 +37,22 @@
   </form>
 </div>
 
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const input = document.getElementById("chat-input") ||
+                  document.getElementById("mehlr-input") ||
+                  document.querySelector("textarea[name='message']") ||
+                  document.querySelector("textarea[name='content']");
+    if (!input) return;
+    input.addEventListener("keydown", function(e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            const form = input.closest("form");
+            if (form) form.requestSubmit();
+        }
+    });
+});
+</script>
 <script>
 (function() {
   const form = document.getElementById('mehlr-chat-form');
@@ -58,6 +74,7 @@
     const content = input.value.trim();
     if (!content) return;
 
+
     const userBubble = document.createElement('div');
     userBubble.className = 'rounded-lg p-4 bg-mehlr-accent/20 ml-8 text-right';
     userBubble.innerHTML = '<p class="text-xs text-gray-500 mb-1">Siz — az önce</p><p>' + content.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
@@ -65,7 +82,7 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
     input.value = '';
-    loadingEl.classList.remove('hidden');
+    loadingEl.style.display = 'block';
 
     const body = JSON.stringify({
       content: content,
@@ -81,7 +98,7 @@
         body: body
       });
       const data = await res.json();
-      loadingEl.classList.add('hidden');
+      loadingEl.style.display = 'none';
 
       if (data.status === 'success') {
         if (!convId.value) convId.value = data.conversation_id;
@@ -108,7 +125,7 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
     } catch (err) {
-      loadingEl.classList.add('hidden');
+      loadingEl.style.display = 'none';
       const errEl = document.createElement('div');
       errEl.className = 'rounded-lg p-4 bg-red-50 text-red-700 mr-8';
       errEl.textContent = 'Bağlantı hatası: ' + err.message;

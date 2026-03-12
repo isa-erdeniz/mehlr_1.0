@@ -60,14 +60,11 @@ def preprocess_query(raw_query: str) -> dict:
 
 
 def rewrite_query(query: str, project_key: str) -> str:
-    """Sorguyu proje bağlamına göre zenginleştir."""
-    from mehlr.prompts.project_prompts import PROJECT_PROMPTS
-
-    project = PROJECT_PROMPTS.get(project_key)
-    if not project:
-        return query
-    if len(query.split()) <= 3:
-        return f"{project['display_name']} bağlamında: {query}"
+    if len(query.strip()) <= 10:
+        from mehlr.prompts.project_prompts import PROJECT_PROMPTS
+        project_name = PROJECT_PROMPTS.get(project_key, {}).get("name", "")
+        if project_name:
+            return f"{project_name} hakkında: {query.strip()}"
     return query
 
 
