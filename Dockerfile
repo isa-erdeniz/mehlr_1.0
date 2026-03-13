@@ -14,4 +14,4 @@ RUN python manage.py collectstatic --no-input
 
 EXPOSE 8000
 
-CMD ["gunicorn", "config.wsgi:application", "--workers", "2", "--threads", "4", "--bind", "0.0.0.0:8000", "--log-level", "info"]
+CMD gunicorn config.wsgi:application --workers 2 --threads 4 --bind 0.0.0.0:$PORT --log-level info
