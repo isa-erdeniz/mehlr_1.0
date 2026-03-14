@@ -1,6 +1,6 @@
 @railway.toml
 
-Dosyayı tamamen şununla değiştir (startCommand YOK):
+Dosyanın tüm içeriğini sil, sadece şunu yaz:
 
 [deploy]
 restartPolicyType = "on_failure"
