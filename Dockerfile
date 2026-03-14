@@ -1,7 +1,3 @@
-@Dockerfile
-
-Dosyayı tamamen şununla değiştir:
-
 FROM python:3.12-slim
 
 WORKDIR /app
