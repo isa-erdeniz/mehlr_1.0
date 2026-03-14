@@ -1,3 +1,6 @@
+@railway.toml
+
+Dosyayı tamamen şununla değiştir (startCommand YOK):
+
 [deploy]
-startCommand = "python manage.py migrate --no-input && python manage.py seed_projects && gunicorn config.wsgi:application --workers 2 --threads 4 --bind 0.0.0.0:$PORT --log-level info"
 restartPolicyType = "on_failure"

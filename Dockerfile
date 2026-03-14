@@ -1,3 +1,7 @@
+@Dockerfile
+
+Dosyayı tamamen şununla değiştir:
+
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -12,4 +16,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD gunicorn config.wsgi:application --workers 2 --threads 4 --bind 0.0.0.0:$PORT --log-level info
+CMD ["sh", "-c", "python manage.py migrate --no-input && python manage.py seed_projects && gunicorn config.wsgi:application --workers 2 --threads 4 --bind 0.0.0.0:$PORT --log-level info"]
